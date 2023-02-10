@@ -43,10 +43,10 @@ def send_ok(text):
 # check and validate that all the fields are present
 def check_form(var, strip=True):
     if not form.has_key(var):
-        send_error("required field '%s' is not present" % (var,))
+        send_error(f"required field '{var}' is not present")
     ret = form.getvalue(var)
     if type(ret) == type([]):
-        send_error("Multiple values given for '%s'. Aborting" % (var,))
+        send_error(f"Multiple values given for '{var}'. Aborting")
     if strip:
         ret = os.path.basename(ret) # this is a path component
     return ret
@@ -59,7 +59,7 @@ def hardlink(src, dst):
         # The file already exists, let's hardlink over it.
         os.unlink(dst)
     os.link(src, dst)
-    log_msg('ln %s %s' % (src, dst))
+    log_msg(f'ln {src} {dst}')
 
 
 def makedirs(path, mode=0o2775):
@@ -67,10 +67,10 @@ def makedirs(path, mode=0o2775):
     nothing."""
     try:
         os.makedirs(path, mode=mode)
-        log_msg('mkdir -p %s' % path)
+        log_msg(f'mkdir -p {path}')
     except OSError as exc:
         if exc.errno != errno.EEXIST:
-            send_error('Failed to create directory: %s' % exc)
+            send_error(f'Failed to create directory: {exc}')
 
 
 def check_file_exists(path, filename, upload):
@@ -106,7 +106,7 @@ else:
 NAME = check_form("name", strip=False)
 
 if '/' not in NAME:
-    NAME = '%s/%s' % (DEFAULT_NAMESPACE, NAME)
+    NAME = f'{DEFAULT_NAMESPACE}/{NAME}'
 
 # Is this a submission or a test?
 FILE = None
@@ -114,25 +114,24 @@ FILENAME = None
 if form.has_key("filename"):
     # check the presence of the file
     FILENAME = check_form("filename")
+elif form.has_key("file"):
+    FILE = form["file"]
+    if not FILE.file:
+        send_error("No file given for upload. Aborting")
+    try:
+        FILENAME = os.path.basename(FILE.filename)
+    except:
+        send_error("Could not extract the filename for upload. Aborting")
 else:
-    if form.has_key("file"):
-        FILE = form["file"]
-        if not FILE.file:
-            send_error("No file given for upload. Aborting")
-        try:
-            FILENAME = os.path.basename(FILE.filename)
-        except:
-            send_error("Could not extract the filename for upload. Aborting")
-    else:
-        send_error("required field '%s' is not present" % ("file", ))
+    send_error("required field 'file' is not present")
 
 # Now that all the fields are valid,, figure out our operating environment
 if not os.environ.has_key("SCRIPT_FILENAME"):
     send_error("My running environment is funky. Aborting")
 
 # try to see if we already have this file...
-file_dest = "%s/%s/%s/%s/%s/%s" % (CACHE_DIR, NAME, FILENAME, hash_type, checksum, FILENAME)
-old_path = "%s/%s/%s/%s/%s" % (CACHE_DIR, NAME, FILENAME, checksum, FILENAME)
+file_dest = f"{CACHE_DIR}/{NAME}/{FILENAME}/{hash_type}/{checksum}/{FILENAME}"
+old_path = f"{CACHE_DIR}/{NAME}/{FILENAME}/{checksum}/{FILENAME}"
 
 check_file_exists(file_dest, FILENAME, FILE)
 if hash_type == 'md5':
@@ -151,23 +150,22 @@ def check_dir(tmpdir, wok=os.W_OK):
     if not os.access(tmpdir, os.F_OK):
         return 0
     if not os.access(tmpdir, os.R_OK|wok|os.X_OK):
-        send_error("Unable to write to %s repository." % (
-            tmpdir,))
+        send_error(f"Unable to write to {tmpdir} repository.")
     if not os.path.isdir(tmpdir):
-        send_error("Path %s is not a directory." % (tmpdir,))
+        send_error(f"Path {tmpdir} is not a directory.")
     return 1
 
 if not os.environ.has_key("SCRIPT_FILENAME"):
     send_error("My running environment is funky. Aborting")
 # the module's top level directory
-my_moddir = "%s/%s" % (CACHE_DIR, NAME)
-my_filedir = "%s/%s" % (my_moddir, FILENAME)
-hash_dir = "%s/%s/%s" % (my_filedir, hash_type, checksum)
+my_moddir = f"{CACHE_DIR}/{NAME}"
+my_filedir = f"{my_moddir}/{FILENAME}"
+hash_dir = f"{my_filedir}/{hash_type}/{checksum}"
 
 # first test if the module really exists
-if not check_dir("%s/%s.git" % (GITREPO, NAME), 0):
+if not check_dir(f"{GITREPO}/{NAME}.git", 0):
     log_msg("Unknown module", NAME)
-    send_ok("Module '%s' does not exist!" % (NAME,))
+    send_ok(f"Module '{NAME}' does not exist!")
     sys.exit(-9)
 
 makedirs(my_moddir)
@@ -175,28 +173,27 @@ makedirs(my_moddir)
 # grab a temporary filename and dump our file in there
 tempfile.tempdir = my_moddir
 tmpfile = tempfile.mktemp(checksum)
-tmpfd = open(tmpfile, "wb+")
-# now read the whole file in
-m = hashlib.new(hash_type)
-FILELENGTH=0
-while 1:
-    s = FILE.file.read(BUFFER_SIZE)
-    if not s:
-        break
-    tmpfd.write(s)
-    m.update(s)
-    FILELENGTH = FILELENGTH + len(s)
-# now we're done reading, check the MD5 sum of what we got
-tmpfd.close()
+with open(tmpfile, "wb+") as tmpfd:
+    # now read the whole file in
+    m = hashlib.new(hash_type)
+    FILELENGTH=0
+    while 1:
+        s = FILE.file.read(BUFFER_SIZE)
+        if not s:
+            break
+        tmpfd.write(s)
+        m.update(s)
+        FILELENGTH = FILELENGTH + len(s)
 check_checksum = m.hexdigest()
 if checksum != check_checksum:
-    send_error("%s check failed. Received %s instead of %s" % (
-        hash_type.upper(), check_checksum, checksum))
+    send_error(
+        f"{hash_type.upper()} check failed. Received {check_checksum} instead of {checksum}"
+    )
 # wow, even the checksum matches. make sure full path is valid now
 makedirs(hash_dir)
 # and move our file to the final location
 os.rename(tmpfile, file_dest)
-log_msg("Stored %s (%s bytes)" % (file_dest, FILELENGTH))
+log_msg(f"Stored {file_dest} ({FILELENGTH} bytes)")
 send_ok("File %s Size %d STORED OK" % (FILENAME, FILELENGTH))
 
 # The file was uploaded with MD5, so we hardlink it to the old location
