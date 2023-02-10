@@ -91,13 +91,13 @@ class UploadTest(unittest.TestCase):
         # Create a package with a single source file in each namespace
         for _, module in EXISTING_MODULES:
             self.setup_module(module)
-            self.touch('%s/%s/hello.txt/md5/%s/hello.txt' % (CACHE_DIR, module, HASH))
-            self.touch('%s/%s/hello.txt/sha512/%s/hello.txt' % (CACHE_DIR, module, SHA512))
+            self.touch(f'{CACHE_DIR}/{module}/hello.txt/md5/{HASH}/hello.txt')
+            self.touch(f'{CACHE_DIR}/{module}/hello.txt/sha512/{SHA512}/hello.txt')
 
         # These are modules with sources in old MD5 path only.
         for _, module in OLD_FILE_MODULES:
             self.setup_module(module)
-            self.touch('%s/%s/hello.txt/%s/hello.txt' % (CACHE_DIR, module, HASH))
+            self.touch(f'{CACHE_DIR}/{module}/hello.txt/{HASH}/hello.txt')
 
     def tearDown(self):
         shutil.rmtree(self.topdir)
@@ -132,7 +132,7 @@ class UploadTest(unittest.TestCase):
                                             'DISTGIT_CONFIG': self.config,
                                             'REQUEST_URI': '/repo/foo/bar/upload.cgi'})
         time.sleep(0.1)     # Wait for server to be up.
-        self.url = 'http://%s:%s/cgi-bin/upload.cgi' % (self.hostname, self.port)
+        self.url = f'http://{self.hostname}:{self.port}/cgi-bin/upload.cgi'
 
     def upload(self, name, hash, hashtype='md5', filename=None, filepath=None, mtime=None):
         """Send a request to the CGI script. Exactly one of filename and
@@ -143,19 +143,13 @@ class UploadTest(unittest.TestCase):
         :param filename: name of a file to check
         :param filepath: path to a file to upload
         """
-        args = {
-            'name': name,
-            '%ssum' % hashtype: hash,
-        }
+        args = {'name': name, f'{hashtype}sum': hash}
         if filename:
             args['filename'] = filename
         if mtime:
             args["mtime"] = mtime
 
-        files = None
-        if filepath:
-            files = {'file': open(filepath, 'rb')}
-
+        files = {'file': open(filepath, 'rb')} if filepath else None
         response = requests.post(self.url, data=args, files=files)
         self._log_output()
         self.assertEqual(response.status_code, 200)
@@ -169,18 +163,18 @@ class UploadTest(unittest.TestCase):
             os.makedirs(os.path.dirname(path))
         except OSError:
             pass
-        print('Creating %s' % path)
+        print(f'Creating {path}')
         with open(path, 'w') as f:
             f.write(contents)
         return path
 
     def setup_module(self, name):
-        for path in [GIT_DIR + '/%s.git', CACHE_DIR + '/%s']:
+        for path in [f'{GIT_DIR}/%s.git', f'{CACHE_DIR}/%s']:
             self.touch(os.path.join(self.topdir, path % name, '.keep'))
 
     def assertFileExists(self, module_name, filename, hash, mtime=None):
         path = os.path.join(self.topdir, CACHE_DIR, module_name, filename, hash, filename)
-        self.assertTrue(os.path.exists(path), '%s should exist' % path)
+        self.assertTrue(os.path.exists(path), f'{path} should exist')
         if mtime:
             self.assertEqual(os.stat(path).st_mtime, mtime)
 
@@ -205,7 +199,7 @@ class UploadTest(unittest.TestCase):
         resp = self.upload(module, hash=NEW_HASH, filepath=test_file)
         self.assertEqual(resp, 'File new.txt size 7 MD5 %s stored OK\n' % NEW_HASH)
         self.assertFileExists(ns_module, 'new.txt', NEW_HASH)
-        self.assertFileExists(ns_module, 'new.txt', 'md5/' + NEW_HASH)
+        self.assertFileExists(ns_module, 'new.txt', f'md5/{NEW_HASH}')
 
     @parameterized.expand(EXISTING_MODULES)
     def test_upload_file_bad_checksum(self, module, ns_module):
@@ -230,7 +224,7 @@ class UploadTest(unittest.TestCase):
         test_file = self.touch('new.txt')
         resp = self.upload(module, hash=NEW_SHA512, hashtype='sha512', filepath=test_file)
         self.assertEqual(resp, 'File new.txt size 7 SHA512 %s stored OK\n' % NEW_SHA512)
-        self.assertFileExists(ns_module, 'new.txt', 'sha512/' + NEW_SHA512)
+        self.assertFileExists(ns_module, 'new.txt', f'sha512/{NEW_SHA512}')
 
     @parameterized.expand(EXISTING_MODULES)
     def test_bad_sha512_hash(self, module, ns_module):
@@ -272,9 +266,8 @@ def _copy_tweak(source_file, dest_file, topdir):
                 if PY2 and line == "#!/usr/bin/python3\n":
                     line = line.replace("python3", "python2")
 
-                m = regex.match(line)
-                if m:
-                    line = "%s = '%s%s'\n" % (m.group(1), topdir, m.group(2))
+                if m := regex.match(line):
+                    line = "%s = '%s%s'\n" % (m[1], topdir, m[2])
                 dest.write(line)
 
 def _dump_config_file(topdir):

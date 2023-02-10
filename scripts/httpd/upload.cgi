@@ -37,7 +37,7 @@ def send_error(text, status='500 Internal Server Error'):
         text (str): The error message to send the client
         status (str, optional): The HTTP status code to return to the client.
     """
-    print('Status: %s' % status)
+    print(f'Status: {status}')
     print('Content-type: text/plain\n')
     print(text)
 
@@ -65,12 +65,13 @@ def check_form(form, var):
     ret = form.getvalue(var, None)
 
     if ret is None:
-        send_error('Required field "%s" is not present.' % var,
-                   status='400 Bad Request')
+        send_error(f'Required field "{var}" is not present.', status='400 Bad Request')
 
     if isinstance(ret, list):
-        send_error('Multiple values given for "%s". Aborting.' % var,
-                   status='400 Bad Request')
+        send_error(
+            f'Multiple values given for "{var}". Aborting.',
+            status='400 Bad Request',
+        )
     return ret
 
 
@@ -116,10 +117,7 @@ def ensure_namespaced(name, namespace):
         return name
 
     name_parts = name.split('/')
-    if len(name_parts) == 1:
-        return os.path.join(namespace, name)
-
-    return name
+    return os.path.join(namespace, name) if len(name_parts) == 1 else name
 
 
 def get_checksum_and_hash_type(form):
@@ -198,9 +196,9 @@ def emit_fedora_message(config, name, checksum, filename, username, msgpath):
         )
         fedora_messaging.api.publish(msg)
     except fedora_messaging.exceptions.PublishReturned as e:
-        sys.stderr.write("Fedora Messaging broker rejected message %s: %s" % (msg.id, e))
+        sys.stderr.write(f"Fedora Messaging broker rejected message {msg.id}: {e}")
     except fedora_messaging.exceptions.ConnectionException as e:
-        sys.stderr.write("Error sending message %s: %s" % (msg.id, e))
+        sys.stderr.write(f"Error sending message {msg.id}: {e}")
     except Exception as e:
         sys.stderr.write("Error sending fedora-messaging message.")
         sys.stderr.write("ERROR: %s\n" % e)
@@ -224,19 +222,20 @@ def main():
 
     if not config.getboolean('upload', 'disable_group_check', fallback=False) and\
             not check_group(username):
-        send_error('You must connect with a valid certificate and be in the '
-                   '%s group to upload.' % PACKAGER_GROUP,
-                   status='403 Forbidden')
+        send_error(
+            f'You must connect with a valid certificate and be in the {PACKAGER_GROUP} group to upload.',
+            status='403 Forbidden',
+        )
 
     assert os.environ['REQUEST_URI'].split('/')[1] == 'repo'
 
     name = check_form(form, 'name').strip('/')
     checksum, hash_type = get_checksum_and_hash_type(form)
 
-    action = None
     upload_file = None
     filename = None
 
+    action = None
     # Is this a submission or a test?
     # in a test, we don't get a file, just a filename.
     # In a submission, we don't get a filename, just the file.
@@ -280,11 +279,10 @@ def main():
     msgpath = os.path.join(name, filename, hash_type, checksum, filename)
 
     # first test if the module really exists
-    git_dir = os.path.join(config['dist-git']['gitroot_dir'], '%s.git' % name)
+    git_dir = os.path.join(config['dist-git']['gitroot_dir'], f'{name}.git')
     if not os.path.isdir(git_dir):
-        sys.stderr.write('[username=%s] Unknown module: %s' % (username, name))
-        send_error('Module "%s" does not exist!' % name,
-                   status='404 Not Found')
+        sys.stderr.write(f'[username={username}] Unknown module: {name}')
+        send_error(f'Module "{name}" does not exist!', status='404 Not Found')
 
     # try to see if we already have this file...
     dest_file = os.path.join(hash_dir, filename)
@@ -319,27 +317,25 @@ def main():
     # grab a temporary filename and dump our file in there
     tempfile.tempdir = module_dir
     tmpfile = tempfile.mkstemp(checksum)[1]
-    tmpfd = open(tmpfile, 'wb')
+    with open(tmpfile, 'wb') as tmpfd:
+        # now read the whole file in
+        m = getattr(hashlib, hash_type)()
+        filesize = 0
+        while True:
+            data = upload_file.file.read(BUFFER_SIZE)
+            if not data:
+                break
+            tmpfd.write(data)
+            m.update(data)
+            filesize += len(data)
 
-    # now read the whole file in
-    m = getattr(hashlib, hash_type)()
-    filesize = 0
-    while True:
-        data = upload_file.file.read(BUFFER_SIZE)
-        if not data:
-            break
-        tmpfd.write(data)
-        m.update(data)
-        filesize += len(data)
-
-    # now we're done reading, check the checksum of what we got
-    tmpfd.close()
     check_checksum = m.hexdigest()
     if checksum != check_checksum:
         os.unlink(tmpfile)
-        send_error("%s check failed. Received %s instead of %s." %
-                   (hash_type.upper(), check_checksum, checksum),
-                   status='400 Bad Request')
+        send_error(
+            f"{hash_type.upper()} check failed. Received {check_checksum} instead of {checksum}.",
+            status='400 Bad Request',
+        )
 
     # wow, even the checksum matches. make sure full path is valid now
     makedirs(hash_dir, username)
@@ -352,8 +348,10 @@ def main():
         try:
             mtime = float(mtime_str)
         except ValueError:
-            send_error('Invalid value sent for mtime "%s". Aborting.' % mtime_str,
-                       status='400 Bad Request')
+            send_error(
+                f'Invalid value sent for mtime "{mtime_str}". Aborting.',
+                status='400 Bad Request',
+            )
 
         os.utime(dest_file, (time.time(), mtime))
 
